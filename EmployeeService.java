@@ -1,191 +1,140 @@
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.Scanner;
+import java.util.List;
+import java.util.Optional;
+import java.util.stream.Collectors;
 
 public class EmployeeService {
 
-    private ArrayList<Employee> employeeList = new ArrayList<>();
-    private Scanner scanner = new Scanner(System.in);
+    private final List<Employee> employeeList = new ArrayList<>();
 
-    // Add Employee
-    public void addEmployee() {
-
-        System.out.print("Enter Employee ID: ");
-        String id = scanner.nextLine();
-
-        if (id.isEmpty()) {
-            System.out.println("Employee ID cannot be empty.");
-            return;
+    /**
+     * Adds a new employee to the system after full validation and duplicate check.
+     */
+    public void addEmployee(Employee employee) {
+        if (employee == null) {
+            throw new ValidationException("Employee cannot be null.");
         }
 
-        if (isDuplicateId(id)) {
-            System.out.println("Employee ID already exists.");
-            return;
+        EmployeeValidator.validateEmployee(employee);
+
+        if (isDuplicateId(employee.getEmployeeId())) {
+            throw new DuplicateEmployeeException("Employee ID '" + employee.getEmployeeId() + "' already exists.");
         }
 
-        System.out.print("Enter Name: ");
-        String name = scanner.nextLine();
-
-        if (name.isEmpty()) {
-            System.out.println("Name cannot be empty.");
-            return;
-        }
-
-        System.out.print("Enter Email: ");
-        String email = scanner.nextLine();
-
-        if (!isValidEmail(email)) {
-            System.out.println("Invalid Email.");
-            return;
-        }
-
-        System.out.print("Enter Department: ");
-        String department = scanner.nextLine();
-
-        System.out.print("Enter Designation: ");
-        String designation = scanner.nextLine();
-
-        System.out.print("Enter Joining Date: ");
-        String joiningDate = scanner.nextLine();
-
-        Employee employee = new Employee(id, name, email, department,
-                designation, joiningDate);
-
-        employeeList.add(employee);
-
-        System.out.println("Employee Added Successfully.");
+        employeeList.add(new Employee(employee));
     }
 
-    // View All Employees
-    public void viewEmployees() {
-
-        if (employeeList.isEmpty()) {
-            System.out.println("No Employees Found.");
-            return;
-        }
-
-        for (Employee employee : employeeList) {
-            System.out.println(employee);
-        }
+    /**
+     * Retrieves all employees.
+     */
+    public List<Employee> getAllEmployees() {
+        return Collections.unmodifiableList(employeeList);
     }
 
-    // Search Employee
-    public void searchEmployeeById() {
-
-        System.out.print("Enter Employee ID: ");
-        String id = scanner.nextLine();
-
-        for (Employee employee : employeeList) {
-            if (employee.getEmployeeId().equals(id)) {
-                System.out.println(employee);
-                return;
-            }
+    /**
+     * Searches for an employee by ID.
+     */
+    public Optional<Employee> getEmployeeById(String id) {
+        if (id == null || id.trim().isEmpty()) {
+            return Optional.empty();
         }
 
-        System.out.println("Employee Not Found.");
+        return employeeList.stream()
+                .filter(emp -> emp.getEmployeeId().equalsIgnoreCase(id.trim()))
+                .findFirst()
+                .map(Employee::new); // Defensive copy
     }
 
-    // Update Employee
-    public void updateEmployee() {
-
-        System.out.print("Enter Employee ID: ");
-        String id = scanner.nextLine();
-
-        for (Employee employee : employeeList) {
-
-            if (employee.getEmployeeId().equals(id)) {
-
-                System.out.print("Enter New Name: ");
-                employee.setName(scanner.nextLine());
-
-                System.out.print("Enter New Email: ");
-                String email = scanner.nextLine();
-
-                if (isValidEmail(email))
-                    employee.setEmail(email);
-                else
-                    System.out.println("Invalid Email. Old Email Retained.");
-
-                System.out.print("Enter New Department: ");
-                employee.setDepartment(scanner.nextLine());
-
-                System.out.print("Enter New Designation: ");
-                employee.setDesignation(scanner.nextLine());
-
-                System.out.print("Enter New Joining Date: ");
-                employee.setJoiningDate(scanner.nextLine());
-
-                System.out.println("Employee Updated Successfully.");
-                return;
-            }
+    /**
+     * Updates an employee record atomically.
+     * All updated values are validated BEFORE modifying the existing record.
+     * If validation fails, no fields are modified.
+     */
+    public void updateEmployee(String id, Employee updatedData) {
+        if (id == null || id.trim().isEmpty()) {
+            throw new ValidationException("Target Employee ID cannot be empty.");
         }
 
-        System.out.println("Employee Not Found.");
-    }
-
-    // Delete Employee
-    public void deleteEmployee() {
-
-        System.out.print("Enter Employee ID: ");
-        String id = scanner.nextLine();
-
-        for (Employee employee : employeeList) {
-
-            if (employee.getEmployeeId().equals(id)) {
-                employeeList.remove(employee);
-                System.out.println("Employee Deleted Successfully.");
-                return;
-            }
+        if (updatedData == null) {
+            throw new ValidationException("Updated employee data cannot be null.");
         }
 
-        System.out.println("Employee Not Found.");
+        Employee existingEmployee = employeeList.stream()
+                .filter(emp -> emp.getEmployeeId().equalsIgnoreCase(id.trim()))
+                .findFirst()
+                .orElseThrow(() -> new EmployeeNotFoundException("Employee with ID '" + id + "' not found."));
+
+        // Create a candidate employee representation to validate proposed new state
+        Employee candidate = new Employee(
+                existingEmployee.getEmployeeId(), // ID remains constant
+                updatedData.getName(),
+                updatedData.getEmail(),
+                updatedData.getDepartment(),
+                updatedData.getDesignation(),
+                updatedData.getJoiningDate()
+        );
+
+        // Validate all new values before applying any changes
+        EmployeeValidator.validateEmployee(candidate);
+
+        // Atomic application of changes only after successful validation
+        existingEmployee.setName(candidate.getName());
+        existingEmployee.setEmail(candidate.getEmail());
+        existingEmployee.setDepartment(candidate.getDepartment());
+        existingEmployee.setDesignation(candidate.getDesignation());
+        existingEmployee.setJoiningDate(candidate.getJoiningDate());
     }
 
-    // Sort by Name
-    public void sortByName() {
-
-        Collections.sort(employeeList, Comparator.comparing(Employee::getName));
-
-        System.out.println("Employees Sorted Successfully.");
-    }
-
-    // Filter by Department
-    public void filterByDepartment() {
-
-        System.out.print("Enter Department: ");
-        String department = scanner.nextLine();
-
-        boolean found = false;
-
-        for (Employee employee : employeeList) {
-
-            if (employee.getDepartment().equalsIgnoreCase(department)) {
-                System.out.println(employee);
-                found = true;
-            }
+    /**
+     * Deletes an employee by ID.
+     */
+    public void deleteEmployee(String id) {
+        if (id == null || id.trim().isEmpty()) {
+            throw new ValidationException("Employee ID cannot be empty.");
         }
 
-        if (!found) {
-            System.out.println("No Employee Found.");
+        boolean removed = employeeList.removeIf(emp -> emp.getEmployeeId().equalsIgnoreCase(id.trim()));
+
+        if (!removed) {
+            throw new EmployeeNotFoundException("Employee with ID '" + id + "' not found.");
         }
     }
 
-    // Check Duplicate ID
-    private boolean isDuplicateId(String id) {
-
-        for (Employee employee : employeeList) {
-            if (employee.getEmployeeId().equals(id)) {
-                return true;
-            }
-        }
-
-        return false;
+    /**
+     * Sorts the employees by name in place and returns an unmodifiable list of sorted employees.
+     */
+    public List<Employee> getEmployeesSortedByName() {
+        employeeList.sort(Comparator.comparing(Employee::getName, String.CASE_INSENSITIVE_ORDER));
+        return Collections.unmodifiableList(new ArrayList<>(employeeList));
     }
 
-    // Email Validation
-    private boolean isValidEmail(String email) {
+    /**
+     * Filters employees by department (case-insensitive).
+     */
+    public List<Employee> filterByDepartment(String department) {
+        if (department == null || department.trim().isEmpty()) {
+            throw new ValidationException("Department search term cannot be empty.");
+        }
 
-        return email.matches("^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+$");
+        String searchDept = department.trim();
+
+        return employeeList.stream()
+                .filter(emp -> emp.getDepartment().equalsIgnoreCase(searchDept))
+                .map(Employee::new)
+                .collect(Collectors.toList());
+    }
+
+    /**
+     * Checks whether an employee ID already exists.
+     */
+    public boolean isDuplicateId(String id) {
+        if (id == null || id.trim().isEmpty()) {
+            return false;
+        }
+
+        return employeeList.stream()
+                .anyMatch(emp -> emp.getEmployeeId().equalsIgnoreCase(id.trim()));
     }
 }
